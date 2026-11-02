@@ -1,7 +1,9 @@
-pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+pluginManagement {
+    repositories { google(); mavenCentral(); gradlePluginPortal() }
+}
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories { google(); mavenCentral() }
 }
-rootProject.name = "UniversalPermissionSample"
-include(":app")
+rootProject.name = "UniversalPermissionManager"
+include(":permission-model", ":permission-platform", ":permission-core", ":permission-sample")
