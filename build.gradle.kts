@@ -6,5 +6,5 @@ plugins {
 
 allprojects {
     group = "com.github.RashidKhan91.AndroidPermissionUtil"
-    version = "1.0.0"
+    version = "1.0.1"
 }
