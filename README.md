@@ -39,9 +39,9 @@ For team distribution, publish the three modules to a Maven repository so Gradle
 This is a multi-module Android library. Publish the **root project** to GitHub; JitPack will build its release variants. The `permission-sample` module is a demo app and is not the library dependency. Before the first release, replace `RashidKhan91` and `AndroidPermissionUtil` in the root `build.gradle.kts` with the GitHub owner and repository name. The project is configured to publish `permission-core`, `permission-platform`, and `permission-model` as Maven artifacts. The core publication declares the other library modules transitively.
 
 1. Create a public GitHub repository and push this entire project, including the Gradle wrapper and `jitpack.yml`.
-2. Set the version in the root `build.gradle.kts` (currently `1.0.0`). Commit and push.
-3. Create and push a matching Git tag, for example `1.0.0`.
-4. Open JitPack, enter the GitHub owner/repository, and build the `1.0.0` tag. Confirm that the build log succeeds.
+2. Set the version in the root `build.gradle.kts` (currently `1.0.1`). Commit and push.
+3. Create and push a matching Git tag, for example `1.0.1`.
+4. Open JitPack, enter the GitHub owner/repository, and build the `1.0.1` tag. Confirm that the build log succeeds.
 5. Consumers add JitPack to their repositories and depend on the core artifact:
 
 ```kotlin
@@ -68,7 +68,7 @@ Declare only the Android permissions needed by your app in its own manifest. The
 <uses-permission android:name="android.permission.CAMERA" />
 ```
 
-Register the manager during `Activity.onCreate` or `Fragment.onCreate` before the lifecycle reaches STARTED, and retain it for that owner. This timing is required by Android's Activity Result API.
+Create one manager per owner. Create an Activity manager in `onCreate`. For a Fragment, create it eagerly as a property before the Fragment reaches `CREATED`, because the Activity Result API requires launcher registration before that lifecycle state. The manager defers reading the Fragment context until a request or check is made.
 
 ```kotlin
 class CameraActivity : ComponentActivity() {
@@ -88,13 +88,23 @@ class CameraActivity : ComponentActivity() {
 }
 ```
 
-Fragments can use `PermissionManager(this)` from `onCreate`. The manager serializes requests and prevents overlapping launcher calls. Multiple requests return one result per distinct requested capability:
+For example, declare a Fragment manager as an eager property:
+
+```kotlin
+class CameraFragment : Fragment() {
+    private val permissionManager = PermissionManager(this)
+}
+```
+
+The manager serializes requests and prevents overlapping launcher calls. Requests made from a background thread are moved to the main thread. Multiple requests return one result per distinct requested capability:
 
 ```kotlin
 permissionManager.requestMultiple(listOf(PermissionType.CAMERA, PermissionType.RECORD_AUDIO)) { batch ->
     batch.results.forEach { result -> println("${result.permission}: ${result.status}") }
 }
 ```
+
+For runtime permissions, the manager first checks whether the calling app is a Device Owner or Profile Owner and attempts an Android `DevicePolicyManager` grant. On a rooted device it then tries `su -c pm grant`. The root manager may show its own authorization prompt. If neither privileged path grants every required permission, the normal Android runtime permission prompt is shown for the remaining permissions. A regular active Device Admin app is not sufficient for policy grants. This does not bypass Android's special-access Settings flows, app-op permissions, signature/privileged permissions, or device policy restrictions.
 
 Special access uses its own Android Settings flow and returns after the host resumes from Settings:
 
@@ -108,7 +118,7 @@ permissionManager.request(PermissionType.SYSTEM_ALERT_WINDOW) { result ->
 
 `PermissionResult` contains the requested `PermissionType`, `PermissionStatus`, grant/permanent-denial flags, retry/settings guidance, device API level, and an optional message. `REQUIRES_SETTINGS` is used by `check()` for special access that is not currently enabled. A completed settings trip returns `GRANTED` or `DENIED`. `NOT_AVAILABLE` means the OS has no corresponding permission on that API level. `ERROR` includes missing manifest declarations or a failed Settings launch. Android does not expose a public, general permission-policy flag to third-party apps, so this implementation does not guess that a denial is caused by an administrator; `RESTRICTED` remains available for future platform-specific detection. `PARTIALLY_GRANTED` reports approximate location when precise location was requested on Android 12+, or selected photo/video access when full media access was requested on Android 14+.
 
-Permanent-denial detection is necessarily best-effort: Android does not expose a universal “never ask again” bit. The manager requires a prior request and a false rationale result. OEM behavior, auto-reset, one-time grants, and administrator policy can affect interpretation. Recheck using `check()` when the app returns to the foreground after your own settings navigation.
+Permanent-denial detection is necessarily best-effort: Android does not expose a universal “never ask again” bit. The manager requires a prior request and a false rationale result. OEM behavior, auto-reset, one-time grants, and administrator policy can affect interpretation. Recheck using `check()` when the app returns to the foreground after your own settings navigation. Pending callback/queue state is held in memory; after process death or owner recreation during a request, inspect permission state with `check()` instead of relying on the original callback.
 
 ## Compatibility overview
 
@@ -132,7 +142,7 @@ Declare just what your feature needs. Common entries include `CAMERA`, `RECORD_A
 ## Troubleshooting
 
 - **`ERROR` with “Declare … in the host app manifest”**: add that permission to the application module manifest and rebuild/reinstall.
-- **Activity Result registration error**: construct the manager before STARTED, normally in `onCreate`; do not construct it in response to a click.
+- **Activity Result registration error**: create Activity managers in `onCreate`; create Fragment managers as eager properties before the Fragment reaches `CREATED`. Do not construct a manager in response to a click.
 - **Special access returns denied**: the user did not enable access, or the device/OEM does not expose the expected settings route. Check again on foreground and provide a manual path.
 - **Permission not available**: use the platform alternative described above (Photo Picker, SAF, or feature-specific API).
 - **Restricted**: an admin or OS policy may block the permission; the app cannot override this.
